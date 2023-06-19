@@ -1,0 +1,1 @@
+esbuild main.ts --outfile=./static/out.js --bundle
