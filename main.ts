@@ -135,25 +135,65 @@ class Movie {
     async addLayers(l: Promise<Layer>[]) {
         this.layers.push(...await Promise.all(l))
         console.log(this.layers)
+        this.updateSliderLength()
+    }
+    updateSliderLength() {
+        this.sliderElement.setAttribute("type", "range")
+        this.sliderElement.setAttribute("min", "0")
+        this.sliderElement.setAttribute("max", getDuration(this.layers)[0].toString())
+        
     }
     setTime(time: number) {
         this.time = time
         // why is nnot resetting thw time
+        ctx.globalCompositeOperation = 'copy';
+        var layerIndex = 0;
         for (let i of this.layers) {
-            var [c,t ] = i.getClipAtTime(time)
-            i.currentPlayingClip = c
+            
+            var [playingClip,t ] = i.getClipAtTime(time)
+            for (let clipIndex = 0; clipIndex < i.clips.indexOf(playingClip); clipIndex++) {
+                i.clips[clipIndex].videoElement.currentTime = i.clips[clipIndex].videoElement.duration
+                console.log("seetting current time of video", i.clips.indexOf(playingClip), clipIndex)
+            }
+            playingClip.videoElement.currentTime = t
+            if (layerIndex != 0) {
+                ctx.globalCompositeOperation = i.blendMode;
+
+            }
+            ctx.globalAlpha = i.alpha
             i.finished = false
+
+            // only draw image of video if it hasnt ended
+            if (!playingClip.videoElement.ended) {
+                console.log("drawing image", playingClip, this.layers)
+                ctx.drawImage(playingClip.videoElement, 0, 0, 256, 256)
+                i.currentPlayingClip = playingClip
+                
+            } else {
+                i.finished = true
+            }
+            //
+            layerIndex++
         }
+        this.updateSliderValue()
         
     }
-    pause() {
-        this.paused = true
+   
+
+    updateSliderValue() {
+        this.sliderElement.value = this.time.toString()
+    }
+    uiTick() {
+
     }
 
-    updateUI() {
-        this.sliderElement.setAttribute("type", "range")
-        this.sliderElement.setAttribute("min", "0")
-        this.sliderElement.setAttribute("max", getDuration(this.layers).toString())
+    pause() {
+        this.paused = true
+        for (let i of this.layers) {
+            for (let clip of i.clips) {
+                clip.videoElement.pause()
+            }
+        }
     }
 
     async play(time: number, pause: boolean) {
@@ -168,6 +208,11 @@ class Movie {
         //     }
         // }
         // var lengthInFrames = length/60
+        for (let i of this.layers) {
+            for (let clip of i.clips) {
+                clip.videoElement.pause()
+            }
+        }
         
         return new Promise<number>((resolve: (reason: any)=>void, reject: (reason:any)=>void) => {
             for (let layer of this.layers) {
@@ -178,6 +223,7 @@ class Movie {
         
             }
             var currentTime = time;
+            console.log("playing video at ", time)
             // var totalTime = 0;
             let longestLayer = getDuration(this.layers)[1]
             var [c, t] = longestLayer.getClipAtTime(time)
@@ -187,10 +233,15 @@ class Movie {
             // console.log("time: ", this.time)
             
             // the problem is that time is a global value that chnages even when not running we need to increment time by chnage
+            var lastRoundedTime = Math.round(this.time)
 
             var drawVideo = (time: number)=>{
             console.log("time: ", this.time, clipsTime)
-
+                if (lastRoundedTime != Math.round(this.time)) {
+                    this.updateSliderValue()
+                }
+                this.uiTick()
+                lastRoundedTime = Math.round(this.time)
                 ctx.globalCompositeOperation = 'copy';
             //     console.log("wad", this.time)
             //     // 
@@ -206,6 +257,7 @@ class Movie {
                         if (finished == this.layers.length) {
                             // full render complete
                             console.log("complete")
+                            this.paused = true
                             resolve("done")
                             return
                         }
@@ -217,6 +269,7 @@ class Movie {
                         let newClipIndex = i.clips.indexOf(i.currentPlayingClip)+1
                         if (newClipIndex > i.clips.length-1) {
                             // layer finished
+                            console.log("settign to finihsed")
                             i.finished = true
                         } else {
                             i.currentPlayingClip = i.clips[newClipIndex]
@@ -241,20 +294,20 @@ class Movie {
         
                     }
                     ctx.globalAlpha = i.alpha
+                    console.log("playing image", i, i.currentPlayingClip)
                     ctx.drawImage(i.currentPlayingClip.videoElement, 0, 0, 256, 256)
                     layerIndex++
                 }
                 // lastTime = time
                 if (!pause && !this.paused) {
+                    console.log("pasued", pause, this.paused)
                     requestAnimationFrame(drawVideo)
                     
-                } else {
-                    this.paused = true
                 }
             }
-            if (!this.paused) {
+            // if (!this.paused) {
                 requestAnimationFrame(drawVideo)
-            }
+            // }
         })
         
         
@@ -295,20 +348,22 @@ async function createMovie() {
     let movie = new Movie()
     movie.sliderElement = slider
     await movie.addLayers([
+        
+        new Layer([
+            new Clip("https://file-examples.com/storage/fefb234bc0648a3e7a1a47d/2017/04/file_example_MP4_480_1_5MG.mp4").init()
+        ], "multiply", 0.98).init(),
         new Layer([
             new Clip("http://techslides.com/demos/sample-videos/small.mp4").init(),
             
         ], "copy", 1).init(),
-        new Layer([
-            new Clip("https://file-examples.com/storage/fefb234bc0648a3e7a1a47d/2017/04/file_example_MP4_480_1_5MG.mp4").init()
-        ], "multiply", 0.98).init()
     ])
-    movie.updateUI()
+    movie.updateSliderLength()
     slider.addEventListener("change", (e:Event)=>{
         // this.time = parseFloat(slider.value)
-        this.time = 0
-        movie.play(parseFloat(slider.value), false)
-        console.log(this.time, "time after slider")
+        // this.time = 0
+        movie.setTime(parseFloat(slider.value))
+        // movie.play(movie.time, true)
+        console.log(movie.time, "time after slider")
     })
     document.getElementById("play").addEventListener("click", function(e) {
         if (movie.paused) {

@@ -83,24 +83,59 @@
     async addLayers(l) {
       this.layers.push(...await Promise.all(l));
       console.log(this.layers);
+      this.updateSliderLength();
+    }
+    updateSliderLength() {
+      this.sliderElement.setAttribute("type", "range");
+      this.sliderElement.setAttribute("min", "0");
+      this.sliderElement.setAttribute("max", getDuration(this.layers)[0].toString());
     }
     setTime(time) {
       this.time = time;
+      ctx.globalCompositeOperation = "copy";
+      var layerIndex = 0;
       for (let i of this.layers) {
-        var [c, t] = i.getClipAtTime(time);
-        i.currentPlayingClip = c;
+        var [playingClip, t] = i.getClipAtTime(time);
+        for (let clipIndex = 0; clipIndex < i.clips.indexOf(playingClip); clipIndex++) {
+          i.clips[clipIndex].videoElement.currentTime = i.clips[clipIndex].videoElement.duration;
+          console.log("seetting current time of video", i.clips.indexOf(playingClip), clipIndex);
+        }
+        playingClip.videoElement.currentTime = t;
+        if (layerIndex != 0) {
+          ctx.globalCompositeOperation = i.blendMode;
+        }
+        ctx.globalAlpha = i.alpha;
         i.finished = false;
+        if (!playingClip.videoElement.ended) {
+          console.log("drawing image", playingClip, this.layers);
+          ctx.drawImage(playingClip.videoElement, 0, 0, 256, 256);
+          i.currentPlayingClip = playingClip;
+        } else {
+          i.finished = true;
+        }
+        layerIndex++;
       }
+      this.updateSliderValue();
+    }
+    updateSliderValue() {
+      this.sliderElement.value = this.time.toString();
+    }
+    uiTick() {
     }
     pause() {
       this.paused = true;
-    }
-    updateUI() {
-      this.sliderElement.setAttribute("type", "range");
-      this.sliderElement.setAttribute("min", "0");
-      this.sliderElement.setAttribute("max", getDuration(this.layers).toString());
+      for (let i of this.layers) {
+        for (let clip of i.clips) {
+          clip.videoElement.pause();
+        }
+      }
     }
     async play(time, pause) {
+      for (let i of this.layers) {
+        for (let clip of i.clips) {
+          clip.videoElement.pause();
+        }
+      }
       return new Promise((resolve, reject) => {
         for (let layer of this.layers) {
           var [clip, t] = layer.getClipAtTime(time);
@@ -108,12 +143,19 @@
           clip.videoElement.currentTime = t;
         }
         var currentTime = time;
+        console.log("playing video at ", time);
         let longestLayer = getDuration(this.layers)[1];
         var [c, t] = longestLayer.getClipAtTime(time);
         var clipsTime = time - t;
         this.time = time;
+        var lastRoundedTime = Math.round(this.time);
         var drawVideo = (time2) => {
           console.log("time: ", this.time, clipsTime);
+          if (lastRoundedTime != Math.round(this.time)) {
+            this.updateSliderValue();
+          }
+          this.uiTick();
+          lastRoundedTime = Math.round(this.time);
           ctx.globalCompositeOperation = "copy";
           var layerIndex = 0;
           var finished = 0;
@@ -122,6 +164,7 @@
               finished++;
               if (finished == this.layers.length) {
                 console.log("complete");
+                this.paused = true;
                 resolve("done");
                 return;
               }
@@ -132,6 +175,7 @@
               }
               let newClipIndex = i.clips.indexOf(i.currentPlayingClip) + 1;
               if (newClipIndex > i.clips.length - 1) {
+                console.log("settign to finihsed");
                 i.finished = true;
               } else {
                 i.currentPlayingClip = i.clips[newClipIndex];
@@ -148,18 +192,16 @@
               ctx.globalCompositeOperation = i.blendMode;
             }
             ctx.globalAlpha = i.alpha;
+            console.log("playing image", i, i.currentPlayingClip);
             ctx.drawImage(i.currentPlayingClip.videoElement, 0, 0, 256, 256);
             layerIndex++;
           }
           if (!pause && !this.paused) {
+            console.log("pasued", pause, this.paused);
             requestAnimationFrame(drawVideo);
-          } else {
-            this.paused = true;
           }
         };
-        if (!this.paused) {
-          requestAnimationFrame(drawVideo);
-        }
+        requestAnimationFrame(drawVideo);
       });
     }
     constructor() {
@@ -173,17 +215,16 @@
     movie.sliderElement = slider;
     await movie.addLayers([
       new Layer([
-        new Clip("http://techslides.com/demos/sample-videos/small.mp4").init()
-      ], "copy", 1).init(),
-      new Layer([
         new Clip("https://file-examples.com/storage/fefb234bc0648a3e7a1a47d/2017/04/file_example_MP4_480_1_5MG.mp4").init()
-      ], "multiply", 0.98).init()
+      ], "multiply", 0.98).init(),
+      new Layer([
+        new Clip("http://techslides.com/demos/sample-videos/small.mp4").init()
+      ], "copy", 1).init()
     ]);
-    movie.updateUI();
+    movie.updateSliderLength();
     slider.addEventListener("change", (e) => {
-      this.time = 0;
-      movie.play(parseFloat(slider.value), false);
-      console.log(this.time, "time after slider");
+      movie.setTime(parseFloat(slider.value));
+      console.log(movie.time, "time after slider");
     });
     document.getElementById("play").addEventListener("click", function(e) {
       if (movie.paused) {
