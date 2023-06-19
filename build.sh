@@ -1,1 +1,1 @@
-esbuild main.ts --outfile=./static/out.js --bundle
+esbuild ui.ts --outfile=./static/out.js --bundle

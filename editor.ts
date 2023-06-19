@@ -14,7 +14,7 @@ var video = document.createElement("video");
 
 var videoElements: HTMLVideoElement[] = []
 
-class Clip {
+export class Clip {
     videoSrc: string
     audioSrc: string
     videoElement: HTMLVideoElement
@@ -42,13 +42,14 @@ class Clip {
     }
 }
 
-class Layer {
+export class Layer {
     clips: Clip[]
     clipPromises: Promise<Clip>[]
     blendMode: GlobalCompositeOperation
     currentPlayingClip: Clip
     alpha: number
     finished: boolean
+    domNode: HTMLElement
     // videoElement: HTMLVideoElement
     constructor(clips: Promise<Clip>[], blendMode: GlobalCompositeOperation, alpha: number) {
         // this.videoElement = document.createElement("video")
@@ -110,7 +111,7 @@ var layers: Layer[] = []
 
 
 
-function getDuration(layers: Layer[]): [number, Layer] {
+export function getDuration(layers: Layer[]): [number, Layer] {
     let longest: Layer = layers[0]
     let length = longest.duration()
     for (let i of layers) {
@@ -127,7 +128,7 @@ function getDuration(layers: Layer[]): [number, Layer] {
 
 
 
-class Movie {
+export class Movie {
     layers: Layer[]
     paused: boolean
     time: number
@@ -343,41 +344,7 @@ class Movie {
 
 
 
-async function createMovie() {
-    let slider = document.getElementById("time-slider") as HTMLInputElement
-    let movie = new Movie()
-    movie.sliderElement = slider
-    await movie.addLayers([
-        
-        new Layer([
-            new Clip("https://file-examples.com/storage/fefb234bc0648a3e7a1a47d/2017/04/file_example_MP4_480_1_5MG.mp4").init()
-        ], "multiply", 0.98).init(),
-        new Layer([
-            new Clip("http://techslides.com/demos/sample-videos/small.mp4").init(),
-            
-        ], "copy", 1).init(),
-    ])
-    movie.updateSliderLength()
-    slider.addEventListener("change", (e:Event)=>{
-        // this.time = parseFloat(slider.value)
-        // this.time = 0
-        movie.setTime(parseFloat(slider.value))
-        // movie.play(movie.time, true)
-        console.log(movie.time, "time after slider")
-    })
-    document.getElementById("play").addEventListener("click", function(e) {
-        if (movie.paused) {
-            movie.paused = false
-            console.log(movie.paused, movie.time)
-            movie.play(movie.time, false)
-        } else {
-            movie.paused = true
-        }
-        
-    })
-}
 
-createMovie()
 
 
 

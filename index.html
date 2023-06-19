@@ -5,11 +5,55 @@
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Document</title>
+    <style>
+        #timeline {
+            display: flex;
+            flex-wrap: nowrap;
+
+        }
+        #layer-container {
+            display: flex;
+            flex-direction: column;
+            width: 100%;
+        }
+        .layer {
+            min-height: 50px;
+            min-width: 100px;
+            background-color: red;
+        }
+
+
+        .modal {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            background-color: black;
+            opacity: 0.8;
+            top: 0;
+            left: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .msg-container {
+            padding: 10px;
+        }
+    </style>
 </head>
 <body>
     <canvas id="viewport"></canvas>
     <input type="range" id="time-slider">
     <button id="play">Play</button>
+    <div id="timeline">
+        <div id="left-controls">
+            <button id="add-layer">+</button>
+        </div>
+        <div id="layer-container">
+            <div class="layer"></div>
+        </div>
+    </div>
+    
     <script src="./static/out.js"></script>
 </body>
 </html>
