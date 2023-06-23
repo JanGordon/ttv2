@@ -16,6 +16,9 @@
         this.videoElement.addEventListener("loadeddata", (ev) => {
           resolve(this);
         });
+        this.videoElement.addEventListener("error", (ev) => {
+          reject("src invalid");
+        });
       });
     }
     constructor(videoSrc) {
@@ -41,6 +44,9 @@
     }
     addClip(clip) {
       this.clips.push(clip);
+      if (this.durationUpdateListener) {
+        this.durationUpdateListener();
+      }
     }
     duration() {
       let d = 0;
@@ -54,15 +60,15 @@
       let clip = this.clips[0];
       for (let i of this.clips) {
         d += i.videoElement.duration;
+        console.log(d, time);
         if (time >= d) {
-          d -= i.videoElement.duration;
           clip = i;
         } else {
           d -= i.videoElement.duration;
+          clip = i;
           break;
         }
       }
-      console.log(time, d);
       let timeInClip = time - d;
       return [clip, timeInClip];
     }
@@ -81,13 +87,20 @@
   }
   var Movie = class {
     async addLayers(l) {
-      this.layers.push(...await Promise.all(l));
-      console.log(this.layers);
+      let layers = await Promise.all(l);
+      for (let i of layers) {
+        this.layers.push(i);
+        i.durationUpdateListener = () => {
+          this.updateSliderLength();
+          this.updateSliderValue();
+        };
+      }
       this.updateSliderLength();
     }
     updateSliderLength() {
       this.sliderElement.setAttribute("type", "range");
       this.sliderElement.setAttribute("min", "0");
+      console.log("setting sldie length", this.layers);
       this.sliderElement.setAttribute("max", getDuration(this.layers)[0].toString());
     }
     setTime(time) {
@@ -98,22 +111,31 @@
         var [playingClip, t] = i.getClipAtTime(time);
         for (let clipIndex = 0; clipIndex < i.clips.indexOf(playingClip); clipIndex++) {
           i.clips[clipIndex].videoElement.currentTime = i.clips[clipIndex].videoElement.duration;
-          console.log("seetting current time of video", i.clips.indexOf(playingClip), clipIndex);
         }
         playingClip.videoElement.currentTime = t;
+        playingClip.videoElement;
         if (layerIndex != 0) {
           ctx.globalCompositeOperation = i.blendMode;
         }
         ctx.globalAlpha = i.alpha;
         i.finished = false;
-        if (!playingClip.videoElement.ended) {
-          console.log("drawing image", playingClip, this.layers);
+        if (playingClip.videoElement.currentTime != playingClip.videoElement.duration) {
           ctx.drawImage(playingClip.videoElement, 0, 0, 256, 256);
           i.currentPlayingClip = playingClip;
         } else {
           i.finished = true;
         }
         layerIndex++;
+      }
+      if (!this.paused) {
+        this.paused = true;
+        this.callAfterFrameRender = true;
+        this.afterFrameRenderCallback = () => setTimeout(() => {
+          console.log("playing again at", this.time);
+          this.paused = false;
+          this.callAfterFrameRender = false;
+          this.play(this.time, false);
+        }, 1e3 / 60);
       }
       this.updateSliderValue();
     }
@@ -131,6 +153,7 @@
       }
     }
     async play(time, pause) {
+      this.paused = false;
       for (let i of this.layers) {
         for (let clip of i.clips) {
           clip.videoElement.pause();
@@ -143,15 +166,13 @@
           clip.videoElement.currentTime = t;
         }
         var currentTime = time;
-        console.log("playing video at ", time);
         let longestLayer = getDuration(this.layers)[1];
         var [c, t] = longestLayer.getClipAtTime(time);
         var clipsTime = time - t;
         this.time = time;
         var lastRoundedTime = Math.round(this.time);
         var drawVideo = (time2) => {
-          console.log("time: ", this.time, clipsTime);
-          if (lastRoundedTime != Math.round(this.time)) {
+          if (lastRoundedTime != Math.round(this.time) && !this.sliderInUse) {
             this.updateSliderValue();
           }
           this.uiTick();
@@ -169,13 +190,13 @@
                 return;
               }
               continue;
-            } else if (i.currentPlayingClip.videoElement.ended) {
+            } else if (i.currentPlayingClip.videoElement.currentTime == i.currentPlayingClip.videoElement.duration) {
               if (layerIndex == 0) {
                 clipsTime += i.currentPlayingClip.duration();
               }
               let newClipIndex = i.clips.indexOf(i.currentPlayingClip) + 1;
               if (newClipIndex > i.clips.length - 1) {
-                console.log("settign to finihsed");
+                console.log("layer finished");
                 i.finished = true;
               } else {
                 i.currentPlayingClip = i.clips[newClipIndex];
@@ -192,13 +213,19 @@
               ctx.globalCompositeOperation = i.blendMode;
             }
             ctx.globalAlpha = i.alpha;
-            console.log("playing image", i, i.currentPlayingClip);
             ctx.drawImage(i.currentPlayingClip.videoElement, 0, 0, 256, 256);
             layerIndex++;
           }
           if (!pause && !this.paused) {
-            console.log("pasued", pause, this.paused);
             requestAnimationFrame(drawVideo);
+          } else {
+            this.paused = true;
+            console.log("not playing", pause, this.paused);
+          }
+          if (this.callAfterFrameRender) {
+            if (this.afterFrameRenderCallback) {
+              this.afterFrameRenderCallback();
+            }
           }
         };
         requestAnimationFrame(drawVideo);
@@ -261,9 +288,12 @@
       let src = await getUserInput("clip source url", "url", (input) => {
         return ["", true];
       });
-      let clip = await new Clip(src).init();
-      console.log(src, clip.videoElement);
-      l.addClip(clip);
+      let clip = new Clip(src).init().then((clip2) => {
+        console.log(src, clip2.videoElement);
+        l.addClip(clip2);
+      }).catch((r) => {
+        alert(r);
+      });
     });
     newNode.appendChild(addClipBtn);
     return newNode;
@@ -276,6 +306,20 @@
     layerContainer.appendChild(layer.domNode);
   });
   document.getElementById("play").addEventListener("click", function(e) {
-    movie.play(0, false);
+    if (movie.paused) {
+      movie.play(movie.time, false);
+    } else {
+      movie.pause();
+    }
+  });
+  movie.sliderElement.addEventListener("pointerdown", function(e) {
+    movie.sliderInUse = true;
+  });
+  document.addEventListener("pointerup", function(e) {
+    movie.sliderInUse = false;
+  });
+  movie.sliderElement.addEventListener("change", function(e) {
+    console.log("settings time aw dawd awd dw ");
+    movie.setTime(parseFloat(movie.sliderElement.value));
   });
 })();

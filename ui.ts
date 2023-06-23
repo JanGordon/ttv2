@@ -54,10 +54,16 @@ function createLayerDomNode(l: editor.Layer) {
         let src = await getUserInput("clip source url", "url", (input: string)=>{
             return ["", true]
         })
-        let clip = await new editor.Clip(src).init()
-        console.log(src, clip.videoElement)
+        let clip = new editor.Clip(src).init()
+            .then((clip: editor.Clip)=>{
+                console.log(src, clip.videoElement)
 
-        l.addClip(clip)
+                l.addClip(clip)
+            })
+            .catch((r: string)=>{
+                alert(r)
+            })
+        
     })
     newNode.appendChild(addClipBtn)
     return newNode
@@ -73,5 +79,25 @@ addLayerBtn.addEventListener("click", async function(e) {
 })
 
 document.getElementById("play").addEventListener("click", function(e) {
-    movie.play(0, false)
+    // movie.setTime(parseFloat(movie.sliderElement.value))
+    // console.log()
+    if (movie.paused) {
+        movie.play(movie.time, false)
+    } else {
+        movie.pause()
+    }
+})
+
+movie.sliderElement.addEventListener("pointerdown", function(e) {
+    movie.sliderInUse = true
+})
+
+document.addEventListener("pointerup", function(e) {
+    movie.sliderInUse = false
+
+})
+
+movie.sliderElement.addEventListener("change", function(e) {
+    console.log("settings time aw dawd awd dw ")
+    movie.setTime(parseFloat(movie.sliderElement.value))
 })

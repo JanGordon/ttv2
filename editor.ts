@@ -32,6 +32,9 @@ export class Clip {
             this.videoElement.addEventListener("loadeddata", (ev: Event)=>{
                 resolve(this)
             })
+            this.videoElement.addEventListener("error", (ev: Event)=>{
+                reject("src invalid")
+            })
         })
         
     }
@@ -50,6 +53,7 @@ export class Layer {
     alpha: number
     finished: boolean
     domNode: HTMLElement
+    durationUpdateListener: ()=>void
     // videoElement: HTMLVideoElement
     constructor(clips: Promise<Clip>[], blendMode: GlobalCompositeOperation, alpha: number) {
         // this.videoElement = document.createElement("video")
@@ -74,6 +78,9 @@ export class Layer {
     addClip(clip: Clip) {
         // clip.videoElement = this.videoElement
         this.clips.push(clip)
+        if (this.durationUpdateListener) {
+            this.durationUpdateListener()
+        }
     }
     duration(): number {
         let d = 0;
@@ -87,19 +94,19 @@ export class Layer {
         let clip = this.clips[0]
         for (let i of this.clips) {
             d+=i.videoElement.duration
-
+            console.log(d, time)
             if (time >= d) {
-                d-=i.videoElement.duration
+                // d-=i.videoElement.duration
                 clip = i
             } else {
                 d-=i.videoElement.duration
+                clip = i
                 break
             }
  
         }
         // clip is the clip that the time falls into
         // d = the time before the clip begins
-        console.log(time, d)
         let timeInClip = time - d
         return [clip, timeInClip]
 
@@ -116,7 +123,6 @@ export function getDuration(layers: Layer[]): [number, Layer] {
     let length = longest.duration()
     for (let i of layers) {
         let d = i.duration()
-        // console.log(d)
         if (d > length) {
             longest = i
             length = d
@@ -133,14 +139,25 @@ export class Movie {
     paused: boolean
     time: number
     sliderElement: HTMLInputElement
+    sliderInUse: boolean
+    callAfterFrameRender: boolean
+    afterFrameRenderCallback: ()=>void
     async addLayers(l: Promise<Layer>[]) {
-        this.layers.push(...await Promise.all(l))
-        console.log(this.layers)
+        let layers = await Promise.all(l)
+        for (let i of layers) {
+            this.layers.push(i)
+            i.durationUpdateListener = ()=>{
+                this.updateSliderLength()
+                this.updateSliderValue()
+            }
+        }
+        
         this.updateSliderLength()
     }
     updateSliderLength() {
         this.sliderElement.setAttribute("type", "range")
         this.sliderElement.setAttribute("min", "0")
+        console.log("setting sldie length", this.layers)
         this.sliderElement.setAttribute("max", getDuration(this.layers)[0].toString())
         
     }
@@ -154,9 +171,9 @@ export class Movie {
             var [playingClip,t ] = i.getClipAtTime(time)
             for (let clipIndex = 0; clipIndex < i.clips.indexOf(playingClip); clipIndex++) {
                 i.clips[clipIndex].videoElement.currentTime = i.clips[clipIndex].videoElement.duration
-                console.log("seetting current time of video", i.clips.indexOf(playingClip), clipIndex)
             }
             playingClip.videoElement.currentTime = t
+            playingClip.videoElement
             if (layerIndex != 0) {
                 ctx.globalCompositeOperation = i.blendMode;
 
@@ -165,16 +182,30 @@ export class Movie {
             i.finished = false
 
             // only draw image of video if it hasnt ended
-            if (!playingClip.videoElement.ended) {
-                console.log("drawing image", playingClip, this.layers)
+            if (playingClip.videoElement.currentTime != playingClip.videoElement.duration) {
                 ctx.drawImage(playingClip.videoElement, 0, 0, 256, 256)
                 i.currentPlayingClip = playingClip
                 
             } else {
                 i.finished = true
+                // console.log("clip is finsihed", playingClip, i.clips.indexOf(playingClip), t, playingClip.videoElement.currentTime, time - t, time)
             }
             //
             layerIndex++
+        }
+
+        // if movie is playing, then restart it at time
+        if (!this.paused) {
+            this.paused = true
+            this.callAfterFrameRender = true
+            this.afterFrameRenderCallback = ()=>setTimeout(()=>{
+                console.log("playing again at", this.time)
+                this.paused=false
+                this.callAfterFrameRender = false
+                this.play(this.time, false)
+            }, 1000/60)
+            // stops otehr play thread
+            
         }
         this.updateSliderValue()
         
@@ -182,6 +213,7 @@ export class Movie {
    
 
     updateSliderValue() {
+        // console.log("updating slier value")
         this.sliderElement.value = this.time.toString()
     }
     uiTick() {
@@ -208,6 +240,7 @@ export class Movie {
         //         length = d
         //     }
         // }
+        this.paused = false
         // var lengthInFrames = length/60
         for (let i of this.layers) {
             for (let clip of i.clips) {
@@ -224,7 +257,7 @@ export class Movie {
         
             }
             var currentTime = time;
-            console.log("playing video at ", time)
+            // console.log("playing video at ", time)
             // var totalTime = 0;
             let longestLayer = getDuration(this.layers)[1]
             var [c, t] = longestLayer.getClipAtTime(time)
@@ -237,8 +270,8 @@ export class Movie {
             var lastRoundedTime = Math.round(this.time)
 
             var drawVideo = (time: number)=>{
-            console.log("time: ", this.time, clipsTime)
-                if (lastRoundedTime != Math.round(this.time)) {
+            // console.log("time: ", this.time, clipsTime)
+                if (lastRoundedTime != Math.round(this.time) && !this.sliderInUse) {
                     this.updateSliderValue()
                 }
                 this.uiTick()
@@ -263,14 +296,14 @@ export class Movie {
                             return
                         }
                         continue
-                    } else if (i.currentPlayingClip.videoElement.ended) {
+                    } else if (i.currentPlayingClip.videoElement.currentTime == i.currentPlayingClip.videoElement.duration) {
                         if (layerIndex == 0) {
                             clipsTime+=i.currentPlayingClip.duration()
                         }
                         let newClipIndex = i.clips.indexOf(i.currentPlayingClip)+1
                         if (newClipIndex > i.clips.length-1) {
                             // layer finished
-                            console.log("settign to finihsed")
+                            console.log("layer finished")
                             i.finished = true
                         } else {
                             i.currentPlayingClip = i.clips[newClipIndex]
@@ -295,15 +328,22 @@ export class Movie {
         
                     }
                     ctx.globalAlpha = i.alpha
-                    console.log("playing image", i, i.currentPlayingClip)
                     ctx.drawImage(i.currentPlayingClip.videoElement, 0, 0, 256, 256)
                     layerIndex++
                 }
                 // lastTime = time
+                
                 if (!pause && !this.paused) {
-                    console.log("pasued", pause, this.paused)
                     requestAnimationFrame(drawVideo)
                     
+                } else {
+                    this.paused = true
+                    console.log("not playing", pause, this.paused)
+                }
+                if (this.callAfterFrameRender) {
+                    if (this.afterFrameRenderCallback) {
+                        this.afterFrameRenderCallback()
+                    }
                 }
             }
             // if (!this.paused) {
